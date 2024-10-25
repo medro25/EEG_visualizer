@@ -1,20 +1,19 @@
-# Use an official Node.js image from Docker Hub
+# Use Node.js official image for React frontend
 FROM node:14-alpine
 
-# Set the working directory in the container
 WORKDIR /app
 
-# Copy the package.json and install dependencies
+# Copy package.json and install dependencies
 COPY package.json ./
 RUN npm install
 
-# Copy the rest of the React application
+# Copy the entire app
 COPY . .
 
 # Build the React app
 RUN npm run build
 
-# Expose the port the React app will run on
+# Expose the port the app runs on
 EXPOSE 3000
 
 # Start the React app

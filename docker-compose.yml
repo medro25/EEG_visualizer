@@ -1,23 +1,19 @@
-version: '3.8'
-
+version: '3'
 services:
+  frontend:
+    build:
+      context: ./react_app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./react_app:/app
+    command: npm start
+
   backend:
     build:
       context: .  # Build from the current directory
     ports:
-      - "5000:5000"  # Expose backend on port 5000
-    environment:
-      - ENV=development  # Optional: set environment variable
+      - "5000:5000"
     volumes:
-      - .:/app  # Mount the project directory for live updates
-    command: python app.py  # Command to run the backend
-
-  frontend:
-    build:
-      context: ./react_app  # Path to React app (frontend)
-    ports:
-      - "3000:3000"  # Expose frontend on port 3000
-    volumes:
-      - ./react_app:/app  # Mount the frontend code for live updates
-    environment:
-      - CHOKIDAR_USEPOLLING=true  # Optional: ensure React detects file changes
+      - ./visualizer:/app
+    command: python app.py

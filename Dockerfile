@@ -1,27 +1,17 @@
-# Use the official Python image as a base
-FROM python:3.9-slim
+# Use a Python base image for the backend
+FROM python:3.9
 
-# Set the working directory in the container
-WORKDIR /app
-
-# Install system-level dependencies
+# Install system dependencies including curl, wget, and the required libpugixml1v5
 RUN apt-get update && \
-    apt-get install -y \
-    build-essential \
-    curl \
-    libpugixml1v5 \
-    && rm -rf /var/lib/apt/lists/*
+    apt-get install -y curl wget libpugixml1v5
 
-# Install liblsl
+# Download and install liblsl
 RUN curl --retry 5 --retry-connrefused -L -o /tmp/liblsl-1.16.2-focal_amd64.deb \
-    https://github.com/sccn/liblsl/releases/download/v1.16.2/liblsl-1.16.2-focal_amd64.deb && \
-    dpkg -i /tmp/liblsl-1.16.2-focal_amd64.deb && \
-    rm /tmp/liblsl-1.16.2-focal_amd64.deb
+    https://github.com/sccn/liblsl/releases/download/v1.16.2/liblsl-1.16.2-focal_amd64.deb \
+    && dpkg -i /tmp/liblsl-1.16.2-focal_amd64.deb || (echo "Failed to install liblsl" && exit 1) \
+    && rm /tmp/liblsl-1.16.2-focal_amd64.deb
 
-# Install mne-lsl via pip
-RUN pip install mne-lsl
-
-# Copy the Python requirements file and install dependencies
+## Copy the Python requirements file and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

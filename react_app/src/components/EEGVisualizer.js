@@ -1,39 +1,46 @@
-// src/components/EEGVisualizer.js
-
 import React, { useEffect, useState } from 'react';
+import * as d3 from 'd3';
 
 const EEGVisualizer = () => {
-  const [data, setData] = useState(null);
-
+  const [data, setData] = useState([]);
+  
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await fetch('/api/eeg-data');
-        const result = await response.json();
-        setData(result);
-      } catch (error) {
-        console.error('Error fetching EEG data:', error);
-      }
+    const socket = new WebSocket('ws://localhost:8765');
+    
+    socket.onmessage = function (event) {
+      const newData = JSON.parse(event.data);
+      setData(newData);  // Set data received from WebSocket
     };
 
-    const intervalId = setInterval(fetchData, 1000); // Fetch data every second
-    return () => clearInterval(intervalId); // Cleanup interval on unmount
+    return () => socket.close();
   }, []);
 
-  return (
-    <div>
-      {data ? (
-        data.map((channelData, index) => (
-          <div key={index}>
-            <h3>Channel {index + 1}</h3>
-            <pre>{JSON.stringify(channelData, null, 2)}</pre>
-          </div>
-        ))
-      ) : (
-        <p>Loading EEG data...</p>
-      )}
-    </div>
-  );
+  useEffect(() => {
+    // D3 visualization logic
+    if (data.length > 0) {
+      const svg = d3.select("#eeg-plot")
+        .attr("width", 800)
+        .attr("height", 400);
+      
+      svg.selectAll("*").remove();  // Clear previous plots
+
+      data.forEach((channelData, idx) => {
+        const line = d3.line()
+          .x((d, i) => i)
+          .y(d => d)
+          .curve(d3.curveMonotoneX);
+
+        svg.append("path")
+          .datum(channelData)
+          .attr("fill", "none")
+          .attr("stroke", "blue")
+          .attr("stroke-width", 1.5)
+          .attr("d", line);
+      });
+    }
+  }, [data]);
+
+  return <svg id="eeg-plot"></svg>;
 };
 
 export default EEGVisualizer;

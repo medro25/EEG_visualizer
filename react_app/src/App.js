@@ -1,10 +1,11 @@
 import React from 'react';
-import EEGVisualizer from './components/EEGVisualizer'; // Assuming you have a component for EEG visualization
+import './App.css';
+import EEGVisualizer from './components/EEGVisualizer';
 
 function App() {
   return (
     <div className="App">
-      <h1>EEG Visualizer</h1>
+      <h1>EEG Data Visualizer</h1>
       <EEGVisualizer />
     </div>
   );

@@ -1,3 +1,6 @@
+import asyncio
+import websockets
+import json
 from mne_lsl.stream import StreamLSL as Stream
 
 class LSLStreamConnector:
@@ -18,3 +21,11 @@ class LSLStreamConnector:
     def get_channel_types(self):
         """Get channel types from the stream."""
         return self.stream.get_channel_types(unique=True)
+
+    async def websocket_server(self, websocket, path):
+        """Send data through the WebSocket."""
+        self.connect()
+        while True:
+            data = self.get_data(500, picks=self.get_channel_types())
+            await websocket.send(json.dumps(data.tolist()))
+            await asyncio.sleep(1)
