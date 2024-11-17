@@ -1,4 +1,4 @@
-# My EEG Visualizer
+# EEG Visualizer
 
 A real-time EEG data visualizer using Lab Streaming Layer (LSL) and simulated EEG and marker streams.
 
@@ -12,6 +12,7 @@ A real-time EEG data visualizer using Lab Streaming Layer (LSL) and simulated EE
 To install the project, clone this repository and install the necessary dependencies:
 
 ```bash
-git clone https://github.com/yourusername/my_eeg_visualizer.git
-cd my_eeg_visualizer
-pip install -r requirements.txt
+git clone https://github.com/medro25/EEG_visualizer.git
+docker-compose up
+docker-compose build
+

@@ -2,7 +2,8 @@
 
 PyQt5
 mne-lsl
-websockets
+websockets==11.0.3
+
 mne
 matplotlib
 numpy

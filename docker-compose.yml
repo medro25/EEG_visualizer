@@ -1,19 +1,29 @@
 version: '3'
+
 services:
   frontend:
     build:
-      context: ./react_app
+      context: ./react_app  # Path to the frontend Dockerfile
     ports:
-      - "3000:3000"
+      - "3000:3000"  # Expose port 3000 for the frontend
     volumes:
-      - ./react_app:/app
-    command: npm start
+      - ./react_app:/app  # Mounts the react_app directory to /app in the container
+    command: npm start  # Start the frontend application
 
   backend:
     build:
-      context: .  # Build from the current directory
+      context: .  # Path to the backend Dockerfile in the current directory
     ports:
-      - "5000:5000"
+      - "5000:5000"  # Expose port 5000 for the backend
+      - "8765:8765"
     volumes:
-      - ./visualizer:/app
-    command: python app.py
+      - ./visualizer:/app  # Mounts the visualizer directory to /app in the container
+      - eeg_data:/app/eeg_data  # Persistent volume for EEG data
+    environment:
+      - DATA_PATH=/app/eeg_data  # Environment variable to define the data path
+      - WEBSOCKET_PORT=8765
+    command: python -u app.py  # Start the backend application
+
+volumes:
+  eeg_data:
+    driver: local  # Define a local volume for persistent storage of EEG data
