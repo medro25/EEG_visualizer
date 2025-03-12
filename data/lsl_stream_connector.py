@@ -70,8 +70,8 @@ class LSLStreamConnector:
 
             #print(f"✅ Retrieved {data.shape[1]} samples.")
             #print(f"[GET DATA] Sample data (first 5 values from first channel): {data[0][:5]}")  # Print first 5 values
-            print("data",data)
-            print("ts",ts)
+            #print("data",data)
+            #print("ts",ts)
             return data, ts
 
         except Exception as e:

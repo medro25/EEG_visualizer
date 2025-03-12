@@ -1,66 +1,88 @@
-import React, { useEffect, useState } from 'react';
-import * as d3 from 'd3';
+import React, { useEffect, useRef, useState } from "react";
+import * as d3 from "d3";
 
-const EEGVisualizer = () => {
-  const [data, setData] = useState([]);
-  const [timestamps, setTimestamps] = useState([]);
-  const [chNames, setChNames] = useState([]);
-  const [winsize, setWinsize] = useState(0);
+const EEGVisualizer = ({ wsUrl, selectedChannels }) => {
+  const svgRef = useRef();
+  const [ws, setWs] = useState(null);
 
   useEffect(() => {
-    const socket = new WebSocket('ws://localhost:8765');
-    console.log("[WebSocket] Connecting to WebSocket...");
+    const socket = new WebSocket(wsUrl);
+    setWs(socket);
 
-    socket.onmessage = function (event) {
-      const message = JSON.parse(event.data);
-      console.log("[WebSocket] Received new data:", message);
+    console.log("🔄 [WebSocket] Connecting to WebSocket...");
 
-      setData(message.data);
-      setTimestamps(message.timestamp);
-      setChNames(message.ch_names);  // Set the channel names received
-      setWinsize(message.winsize);    // Set the winsize received
+    socket.onopen = () => console.log("✅ [WebSocket] Connection established.");
+    
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        console.log("📩 [WebSocket] EEG Visualizer - Received Data:", message);
+
+        if (!message.timestamps || !message.data || !message.selected_channels) {
+            console.warn("⚠️ Missing EEG data fields:", message);
+            return;
+        }
+
+        console.log("⏱️ Timestamps:", message.timestamps.length);
+        console.log("📊 Data Received for Channels:", message.selected_channels);
+        console.log("📊 Data Length for Each Channel:", message.data.map(d => d.length));
+
+        if (message.selected_channels.length !== message.data.length) {
+            console.error("❌ Mismatch: Number of channels does not match data received!");
+            return;
+        }
+
+        // ✅ Pass `svgRef` to `updatePlot`
+        updatePlot(svgRef, message.timestamps, message.data, message.selected_channels);
+
+      } catch (error) {
+        console.error("❌ [WebSocket] Error processing message:", error);
+      }
     };
 
-    socket.onopen = () => console.log("[WebSocket] Connection opened.");
-    socket.onclose = () => console.log("[WebSocket] Connection closed.");
+    socket.onclose = () => {
+      console.warn("🛑 [WebSocket] Connection closed.");
+      setTimeout(() => {
+        console.log("🔄 [WebSocket] Reconnecting...");
+        setWs(new WebSocket(wsUrl));
+      }, 3000);
+    };
+
+    socket.onerror = (error) => console.error("❌ [WebSocket] Error:", error);
 
     return () => {
-      console.log("[WebSocket] Closing WebSocket connection...");
+      console.log("🔌 [WebSocket] Closing connection...");
       socket.close();
     };
-  }, []);
+  }, [wsUrl, selectedChannels]);
 
-  useEffect(() => {
-    if (data.length > 0) {
-      const svg = d3.select("#eeg-plot")
-        .attr("width", 800)
-        .attr("height", 400);
-      
-      svg.selectAll("*").remove();
+  return <svg ref={svgRef} width={800} height={400}></svg>;
+};
 
-      data.forEach((channelData, idx) => {
+// ✅ Fix: Pass `svgRef` as a parameter
+const updatePlot = (svgRef, timestamps, data, selectedChannels) => {
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove(); // Clear previous plots
+
+    const width = 800, height = 400;
+    const xScale = d3.scaleLinear().domain([0, timestamps.length]).range([0, width]);
+    const yScale = d3.scaleLinear().domain([-1, 1]).range([height, 0]);
+
+    selectedChannels.forEach((chName, index) => {
         const line = d3.line()
-          .x((d, i) => i * (winsize / data[idx].length))  // Adjust x scale using winsize
-          .y(d => d)
-          .curve(d3.curveMonotoneX);
+            .x((_, i) => xScale(i))
+            .y(d => yScale(d))
+            .curve(d3.curveMonotoneX);
 
         svg.append("path")
-          .datum(channelData)
-          .attr("fill", "none")
-          .attr("stroke", "blue")
-          .attr("stroke-width", 1.5)
-          .attr("d", line);
+            .datum(data[index] || []) // Select correct data for each channel
+            .attr("fill", "none")
+            .attr("stroke", index % 2 === 0 ? "blue" : "red") // Different colors for each channel
+            .attr("stroke-width", 1.5)
+            .attr("d", line);
+    });
 
-        svg.append("text")  // Add channel name labels
-          .attr("x", 10)
-          .attr("y", idx * 20 + 15)
-          .style("font-size", "12px")
-          .text(chNames[idx]);
-      });
-    }
-  }, [data, chNames, winsize]);
-
-  return <svg id="eeg-plot"></svg>;
+    console.log("📊 EEG Data Successfully Plotted!");
 };
 
 export default EEGVisualizer;
