@@ -1,111 +1,127 @@
 import asyncio
-import websockets
 import json
 import logging
+import websockets
+import numpy as np
+from data.eeg_data_simulator import LSLDataSimulator
 from data.lsl_stream_connector import LSLStreamConnector
-from data.eeg_data_simulator import EEGDataSimulator
-from visualizer.eeg_visualizer import EEGVisualizer
-from mne import set_log_level
 
 logging.basicConfig(level=logging.DEBUG)
 
 class EEGWebSocketServer:
-    def __init__(self, host, port, bufsize=2, chunk_size=200):
+    def __init__(self, host="0.0.0.0", port=8765, bufsize=200):
         self.host = host
         self.port = port
-        self.chunk_size = chunk_size
         self.bufsize = bufsize
-        self.simulator = None
-        self.connector = None
-        self.visualizer = None
+        self.simulator = LSLDataSimulator()
+        self.connector = None  
 
-    def initialize_simulator(self):
-        """Initialize the EEG data simulator."""
-        logging.debug("[DEBUG] Initializing EEG Data Simulator")
-        set_log_level("WARNING")
-        self.simulator = EEGDataSimulator(chunk_size=self.chunk_size)
-        info, sfreq, n_channels, ch_names = self.simulator.start_stream()
+    async def websocket_handler(self, websocket):
+        logging.info("✅ [WebSocket] New client connected.")
 
-        if info is None:
-            logging.error("[ERROR] Failed to initialize EEG data stream. Exiting...")
-            exit(1)
+        try:
+            # ✅ Send available EEG streams
+            available_streams = self.simulator.find_streams()
+            if not available_streams:
+                logging.warning("⚠️ No EEG streams found!")
+                await websocket.send(json.dumps({"error": "No streams available."}))
+                return
 
-        # Retrieve the unique source ID for the stream
-        source_id = self.simulator.source_id
-        
-        # Initialize LSL Stream Connector with the simulator's source ID
-        self.connector = LSLStreamConnector(bufsize=self.bufsize, source_id=source_id)
-        self.connector.connect()
-        
-        # Dynamically calculate `winsize` and `picks`
-        self.sfreq = sfreq  # Sampling frequency from the simulator
-        self.picks = ch_names[:6]  # Select the first 6 channels or adapt as needed
-        self.winsize = self.connector.stream.n_new_samples / self.sfreq
-        self.visualizer = EEGVisualizer(ch_names=self.picks, picks=self.picks)
-        logging.debug(f"[DEBUG] Calculated picks: {self.picks}")
-        logging.debug(f"[DEBUG] Calculated winsize: {self.winsize}")
+            stream_info = [{"name": stream.name(), "channels": []} for stream in available_streams]
+            await websocket.send(json.dumps({"streams": stream_info}))
 
-    async def websocket_handler(self, websocket, path):
-        """Handles WebSocket connections and sends EEG data to clients."""
-        logging.debug("[DEBUG] WebSocket connection established")
-        while True:
-            try:
-                self.winsize = self.connector.stream.n_new_samples / self.sfreq
-                logging.debug(f"[DEBUG] Calculated winsize here: {self.winsize}") 
-                
-                # Retrieve EEG data using dynamically calculated winsize and picks
-                eeg_data, timestamps = self.connector.get_data(winsize=self.winsize, picks=self.picks)
-                
-                if eeg_data is not None:
-                    logging.debug("[DEBUG] Sending EEG data over WebSocket")
-                    message = {
-                        "timestamp": timestamps.tolist(),
-                        "data": eeg_data.tolist(),
-                        "ch_names": self.picks,  # Send channel names
-                        "winsize": self.winsize  # Send window size
-                    }
-                    await websocket.send(json.dumps(message))  # Send the EEG data as JSON
-                    logging.info("[INFO] EEG data sent successfully")
-                    
-                    # Update backend visualizer with data
-                    self.visualizer.update_plot(ts=timestamps, data=eeg_data)
-                    logging.debug("[DEBUG] Visualizer updated with new data")
-                else:
-                    logging.warning("[WARNING] No data to send, skipping this interval")
-                
-                await asyncio.sleep(0.1)  # Short pause between transmissions
-            except Exception as e:
-                logging.error(f"[ERROR] Error in WebSocket handler: {e}")
-                break
+            # ✅ Receive stream selection
+            message = await websocket.recv()
+            selected_stream_data = json.loads(message)
+            selected_stream_name = selected_stream_data.get("stream_name")
+
+            if not selected_stream_name:
+                logging.error("❌ Invalid stream name received.")
+                await websocket.send(json.dumps({"error": "Invalid stream name."}))
+                return
+
+            # ✅ Connect to EEG stream
+            self.connector = LSLStreamConnector(bufsize=self.bufsize)
+            if not self.connector.connect(selected_stream_name):
+                logging.error(f"❌ Failed to connect to stream: {selected_stream_name}")
+                await websocket.send(json.dumps({"error": "Failed to connect to stream."}))
+                return
+
+            # ✅ Send available EEG channels
+            await websocket.send(json.dumps({"channels": self.connector.ch_names}))
+
+            # ✅ Receive selected channels
+            message = await websocket.recv()
+            selected_channels_data = json.loads(message)
+            selected_channels = selected_channels_data.get("selected_channels", [])
+
+            if not selected_channels or not set(selected_channels).issubset(self.connector.ch_names):
+                logging.error("❌ Invalid channel selection.")
+                await websocket.send(json.dumps({"error": "Invalid channel selection."}))
+                return
+
+            logging.info(f"✅ User selected channels: {selected_channels}")
+
+            # ✅ Start streaming EEG data
+            await self.stream_real_time(websocket, selected_channels)
+
+        except websockets.exceptions.ConnectionClosed:
+            logging.warning("🛑 WebSocket connection closed.")
+
+        except Exception as e:
+            logging.error(f"❌ WebSocket error: {e}")
+
+    async def stream_real_time(self, websocket, selected_channels):
+        interval = self.connector.bufsize / self.connector.sfreq if self.connector.sfreq else 0.1
+        logging.info("📡 Streaming EEG data to client...")
+
+        try:
+            while True:
+                data, timestamps = self.connector.get_data(winsize=1, picks=selected_channels)
+
+                # ✅ Ensure valid data is received
+                if data is None or timestamps is None or len(timestamps) == 0 or len(data) == 0:
+                    logging.warning("⚠️ No valid EEG data received from the stream!")
+                    continue
+
+                # ✅ Convert to lists for JSON
+                timestamps_list = timestamps.tolist() if isinstance(timestamps, np.ndarray) else list(timestamps)
+                data_list = data.tolist() if isinstance(data, np.ndarray) else list(data)
+
+                # ✅ Debug log EEG data samples before sending
+                logging.info(f"⏳ First 5 Timestamps: {timestamps_list[:5]}")
+                for i, ch in enumerate(selected_channels):
+                    logging.info(f"📊 EEG Data Sample ({ch}): {data_list[i][:5]}")
+
+                # ✅ Ensure data and timestamps lengths match
+                if len(data_list[0]) != len(timestamps_list):
+                    logging.error("❌ Mismatch between EEG data length and timestamps length!")
+                    continue
+
+                # ✅ Send EEG data over WebSocket
+                message = {
+                    "timestamps": timestamps_list,
+                    "data": data_list,
+                    "selected_channels": selected_channels
+                }
+                await websocket.send(json.dumps(message))
+                logging.info("📡 Sent EEG data.")
+
+                await asyncio.sleep(interval)
+
+        except websockets.exceptions.ConnectionClosed:
+            logging.warning("🛑 WebSocket connection closed.")
+            self.connector.stream.disconnect()
 
     async def start_server(self):
-        """Starts the WebSocket server and confirms it's running."""
-        logging.debug(f"[DEBUG] Starting WebSocket server on ws://{self.host}:{self.port}")
-        try:
-            server = await websockets.serve(self.websocket_handler, self.host, self.port)
-            logging.info(f"[INFO] WebSocket server successfully started on ws://{self.host}:{self.port}")
-            while True:
-                logging.info("[INFO] WebSocket server is running...")
-                await asyncio.sleep(5)  # Log every 5 seconds to confirm the server is running
-                if server.is_serving():
-                    logging.info("[INFO] Server is actively serving connections.")
-                else:
-                    logging.warning("[WARNING] Server stopped serving; no connections are active.")
-            await server.wait_closed()
-        except Exception as e:
-            logging.error(f"[ERROR] Failed to start WebSocket server: {e}")
+        logging.info(f"🚀 WebSocket server running on ws://{self.host}:{self.port}...")
+        async with websockets.serve(self.websocket_handler, self.host, self.port):
+            await asyncio.Future()  # Keep running
 
     def run(self):
-        """Initializes the simulator and runs the WebSocket server."""
-        self.initialize_simulator()
+        logging.info("\n🔹 Starting EEG WebSocket Server...\n")
         asyncio.run(self.start_server())
 
-# Main entry point
 if __name__ == "__main__":
-    # Define server parameters
-    HOST = "0.0.0.0"
-    PORT = 8765
-
-    # Initialize and run the WebSocket server
-    eeg_server = EEGWebSocketServer(host=HOST, port=PORT)
+    eeg_server = EEGWebSocketServer()
     eeg_server.run()
